@@ -1,0 +1,450 @@
+import React, { useEffect, useRef, useState } from 'react';
+
+const PDFFlipbookIframe = () => {
+  const iframeRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const TURN_CSS = "https://cdn.jsdelivr.net/npm/turn.js@4.1.0/dist/basic.css";
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+
+    iframeDoc.open();
+    iframeDoc.write(`
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+
+<link rel="stylesheet" href="${TURN_CSS}">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #333;
+    font-family: Arial;
+  }
+
+  #wrapper {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #magazine {
+    margin: 0 auto;
+    opacity: 0;
+    transition: opacity .5s ease-in;
+  }
+
+  #magazine .page {
+    background: white ;
+    box-shadow: 0 0 20px rgba(0,0,0,0.3);
+  }
+
+  #magazine .page canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 16px;
+    color: white;
+  }
+
+
+  /* ------------------------------------------------------------------
+     MOBILE FIXES — do NOT change desktop behavior
+     ------------------------------------------------------------------ */
+  @media (max-width: 900px) {
+    #magazine .page,
+    .turn-page,
+    .turn-page-wrapper,
+    .turn-page .gradient,
+    .turn-page .fold {
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.85) !important;
+    }
+       .turn-page .gradient {
+    background: linear-gradient(
+      to left,
+      rgba(255, 255, 255, 0.95),
+      rgba(255, 255, 255, 0.6),
+      rgba(0, 0, 0, 0.25)
+    ) !important;
+    opacity: 1 !important;
+    width: 100% !important;
+  }
+  }
+  
+
+  /* Corner buttons for page turning */
+  .corner-btn {
+    position: absolute;
+    bottom: 12px;
+    width: 40px;
+    height: 40px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    font-size: 20px;
+    z-index: 1000;
+    transition: background 0.2s ease;
+  }
+  .corner-btn:hover { background: rgba(0,0,0,0.7); }
+  .corner-btn.left { left: 12px; }
+  .corner-btn.right { right: 12px; }
+
+  /* Force blank first page on mobile when requested */
+  .blank-first {
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+  .blank-first img {
+    display: none !important;
+  }
+@media (max-width: 900px) {
+  /* Create a fake backside overlay */
+  .turn-page::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: white;
+    z-index: 1;
+    opacity: 1;
+    pointer-events: none;
+    transform-origin: left center;
+  }
+
+  /* Ensure front content stays on top */
+  .turn-page > * {
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Gradient shadow above everything */
+  .turn-page .gradient {
+    z-index: 3 !important;
+  }
+}
+
+
+</style>
+
+</head>
+<body>
+
+<div id="wrapper"><div id="magazine"></div></div>
+
+<script src="https://code.jquery.com/jquery-1.7.1.min.js"></script>
+<script src="/lib/turn.min.js"></script>
+<script>
+  // If local turn.min.js fails, fallback to CDN
+  if (!window.jQuery || !jQuery.fn.turn) {
+    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/4/turn.min.js"><\\/script>');
+  }
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
+
+<script>
+(function(){
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js";
+
+  let pdfDoc = null;
+  let totalPages = 0;
+  let pdfViewport = null;
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                     ('ontouchstart' in window) ||
+                     (navigator.maxTouchPoints > 0);
+
+  function getBookSize(){
+    if (!pdfViewport) return { width: 800, height: 600, isMobile: false };
+
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const isMobile = winW < 900;
+
+    const pageRatio = pdfViewport.width / pdfViewport.height;
+    const availW = isMobile ? winW : Math.min(winW * 0.95, 1400);
+    const availH = winH * 0.95;
+
+    let w, h;
+
+    if (isMobile) {
+      w = availW;
+      h = w / pageRatio;
+      if (h > availH) {
+        h = availH;
+        w = h * pageRatio;
+      }
+    } else {
+      const bookRatio = pageRatio * 2;
+      w = availW;
+      h = w / bookRatio;
+      if (h > availH) {
+        h = availH;
+        w = h * bookRatio;
+      }
+    }
+
+    return { width: Math.floor(w), height: Math.floor(h), isMobile };
+  }
+
+  async function renderPage(pageNum){
+    const page = await pdfDoc.getPage(pageNum);
+    const scale = isMobileUA ? 1.2 : 1.5; // slightly higher scale on mobile for better visual quality
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas.toDataURL("image/png");
+  }
+
+  async function loadPDF(){
+    const url = "/sample.pdf";
+
+    try {
+      pdfDoc = await pdfjsLib.getDocument(url).promise;
+      totalPages = pdfDoc.numPages;
+
+      const first = await pdfDoc.getPage(1);
+      pdfViewport = first.getViewport({ scale: 1 });
+
+      const mag = document.getElementById("magazine");
+
+      // Clear previous content if any
+      mag.innerHTML = "";
+
+      // Decide if mobile layout (single) needs a leading blank page
+      const size = getBookSize();
+
+      // Build page DOM and render all pages eagerly (no lazy loading)
+      for (let i = 1; i <= totalPages; i++) {
+        const dataUrl = await renderPage(i);
+        const div = document.createElement("div");
+        div.className = "page";
+        div.style.width = "100%";
+        div.style.height = "100%";
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        img.decoding = "async";
+        img.loading = "eager";
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.display = "block";
+        img.style.objectFit = "contain";
+        img.style.backgroundColor = "white";
+        div.appendChild(img);
+        // Mirror the first page content onto its backside for desktop; blank it on mobile
+        
+        mag.appendChild(div);
+      }
+
+      /* ------------------------------
+         TURN.JS INIT
+      ------------------------------ */
+
+      $("#magazine").turn({
+        display: size.isMobile ? "single" : "double",
+        width: size.width,
+        height: size.height,
+        autoCenter: true,
+        acceleration: true,
+        gradients: true,
+        elevation: size.isMobile ? 150 : 50,
+        duration: size.isMobile ? 900 : 800, // slower flip on mobile
+        page: 1
+      });
+
+      $("#magazine").css("opacity", 1);
+      // Notify parent React component
+      window.parent.postMessage({ type: "loaded" }, "*");
+
+
+  
+
+      $("#magazine").on("click", function(e){
+        const offset = $(this).offset();
+        const w = $(this).width();
+        const x = e.pageX - offset.left;
+
+        if (x < w * 0.3) $(this).turn("previous");
+        else if (x > w * 0.7) $(this).turn("next");
+      });
+
+      // Listen for parent keyboard navigation messages
+      window.addEventListener("message", function(ev) {
+        if (!ev.data || ev.data.type !== "turn") return;
+        if (ev.data.dir === "prev") $("#magazine").turn("previous");
+        if (ev.data.dir === "next") $("#magazine").turn("next");
+      });
+
+      // Add corner buttons for both desktop and mobile
+      const wrapper = document.getElementById("wrapper");
+      if (wrapper && !document.getElementById("corner-left")) {
+        const leftBtn = document.createElement("div");
+        leftBtn.id = "corner-left";
+        leftBtn.className = "corner-btn left";
+        leftBtn.innerHTML = "↩";
+        leftBtn.onclick = () => $("#magazine").turn("previous");
+
+        const rightBtn = document.createElement("div");
+        rightBtn.id = "corner-right";
+        rightBtn.className = "corner-btn right";
+        rightBtn.innerHTML = "↪";
+        rightBtn.onclick = () => $("#magazine").turn("next");
+
+        wrapper.appendChild(leftBtn);
+        wrapper.appendChild(rightBtn);
+      }
+
+      window.addEventListener("keydown", function(e){
+        if (!$("#magazine").data("turn")) return;
+        if (e.key === "ArrowLeft") $("#magazine").turn("previous");
+        if (e.key === "ArrowRight") $("#magazine").turn("next");
+      });
+
+      window.addEventListener("resize", function(){
+        const ns = getBookSize();
+        $("#magazine").turn("size", ns.width, ns.height);
+        const d = ns.isMobile ? "single" : "double";
+        if ($("#magazine").turn("display") !== d) {
+          $("#magazine").turn("display", d);
+        }
+      });
+
+    } catch (err) {
+      console.error("PDF Load Error:", err);
+    }
+  }
+
+  function checkDeps(){
+    if (window.$ && $.fn.turn && window.pdfjsLib) loadPDF();
+    else setTimeout(checkDeps, 50);
+  }
+
+  checkDeps();
+
+})();
+</script>
+
+</body>
+</html>
+    `);
+    iframeDoc.close();
+
+    // Listen for "loaded" / "error" messages from iframe
+    const handleMessage = (event) => {
+      if (!event.data) return;
+      if (event.data.type === "loaded") {
+        setLoading(false);
+      } else if (event.data.type === "error") {
+        setError(event.data.message);
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
+
+  // Parent-level keyboard navigation: forward to iframe
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "ArrowLeft" || e.keyCode === 37) {
+        iframeRef.current?.contentWindow?.postMessage({ type: "turn", dir: "prev" }, "*");
+      } else if (e.key === "ArrowRight" || e.keyCode === 39) {
+        iframeRef.current?.contentWindow?.postMessage({ type: "turn", dir: "next" }, "*");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: "100vh",
+        overflow: "hidden",
+        background: "#333",
+        position: "relative"
+      }}
+    >
+      {loading && (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            zIndex: 10,
+            color: "white"
+          }}
+        >
+          Loading PDF...
+        </div>
+      )}
+
+      {error && (
+        <div
+          style={{
+            color: "#ff6b6b",
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            zIndex: 10
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <iframe
+        ref={iframeRef}
+        tabIndex={0}
+        style={{
+          width: "100%",
+          height: "100%",
+          border: "none",
+          display: "block"
+        }}
+        title="PDF Flipbook"
+        sandbox="allow-scripts allow-same-origin"
+      />
+    </div>
+  );
+};
+
+export default PDFFlipbookIframe;

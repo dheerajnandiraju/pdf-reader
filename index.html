@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PDF.js + Turn.js Flipbook</title>
+  <script src="https://code.jquery.com/jquery-1.7.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
+  <script src="turn.min.js"></script>
+  <style>
+    body {
+      background: #ccc;
+      margin: 20px;
+      font-family: Arial, sans-serif;
+    }
+    #magazine {
+      width: 1152px;
+      height: 752px;
+      margin: 0 auto;
+    }
+    #magazine .page {
+      background-color: #fff;
+      background-size: cover;
+      position: relative;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .controls {
+      text-align: center;
+      margin: 20px 0;
+      color: #333;
+    }
+    .controls button {
+      padding: 10px 20px;
+      margin: 0 10px;
+      font-size: 16px;
+      cursor: pointer;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+    }
+    .controls button:hover {
+      background: #45a049;
+    }
+    .loading {
+      text-align: center;
+      padding: 50px;
+      color: #666;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="loading" id="loading">Loading PDF...</div>
+<div id="magazine"></div>
+<div class="controls" id="controls" style="display: none;">
+  <button onclick="$('#magazine').turn('previous')">Previous</button>
+  <button onclick="$('#magazine').turn('next')">Next</button>
+  <span id="page-info"></span>
+</div>
+
+<script>
+  // PDF URL - using local sample.pdf file
+  const url = 'sample.pdf';
+
+  // Initialize PDF.js
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js';
+
+  let pdfDoc = null;
+  let currentPage = 1;
+  let totalPages = 0;
+
+  function renderPageToCanvas(page, canvas) {
+    const viewport = page.getViewport({ scale: 1.5 });
+    const context = canvas.getContext('2d');
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport
+    };
+
+    return page.render(renderContext).promise;
+  }
+
+  function addPageToFlipbook(canvas) {
+    const pageDiv = $('<div>').addClass('page');
+    pageDiv.append(canvas);
+    $('#magazine').append(pageDiv);
+  }
+
+  function updatePageInfo() {
+    const view = $('#magazine').turn('view');
+    $('#page-info').text(`Page ${view[0]} of ${totalPages}`);
+  }
+
+  async function loadPDF(url) {
+    try {
+      pdfDoc = await pdfjsLib.getDocument(url).promise;
+      totalPages = pdfDoc.numPages;
+
+      // Render all pages (for very large PDFs, consider lazy loading)
+      for (let i = 1; i <= totalPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const canvas = document.createElement('canvas');
+        await renderPageToCanvas(page, canvas);
+        addPageToFlipbook(canvas);
+      }
+
+      // Hide loading message
+      $('#loading').hide();
+      $('#controls').show();
+
+      // Initialize Turn.js after all pages are loaded
+      $('#magazine').turn({
+        display: 'double',
+        acceleration: true,
+        gradients: !$.isTouch,
+        elevation: 50,
+        width: 1152,
+        height: 752,
+        when: {
+          turned: function(e, page) {
+            updatePageInfo();
+          }
+        }
+      });
+
+      // Update page info initially
+      updatePageInfo();
+    } catch (error) {
+      console.error('Error loading PDF:', error);
+      $('#loading').html('Error loading PDF. Please make sure sample.pdf exists in the root directory.');
+    }
+  }
+
+  $(document).ready(function() {
+    loadPDF(url);
+
+    $(window).bind('keydown', function(e) {
+      if (e.keyCode == 37) // left arrow
+        $('#magazine').turn('previous');
+      else if (e.keyCode == 39) // right arrow
+        $('#magazine').turn('next');
+    });
+  });
+</script>
+
+</body>
+</html>
+
