@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const PDFFlipbookIframe = () => {
+const PDFFlipbookIframe = ({ pdfUrl }) => {
   const iframeRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,7 +28,7 @@ const PDFFlipbookIframe = () => {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #333;
+    background: #16101bff;
     font-family: Arial;
   }
 
@@ -145,7 +145,43 @@ const PDFFlipbookIframe = () => {
     z-index: 3 !important;
   }
 }
+#mute-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2000;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  padding: 10px 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  user-select: none;
+  transition: background 0.2s ease;
+}
 
+#mute-btn:hover {
+  background: rgba(0,0,0,0.8);
+}
+
+#fullscreen-btn {
+  position: fixed;
+  top: 16px;
+  right: 64px; /* 👈 beside mute */
+  z-index: 2000;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  padding: 10px 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+#fullscreen-btn:hover {
+  background: rgba(0,0,0,0.8);
+}
 
 </style>
 
@@ -153,6 +189,13 @@ const PDFFlipbookIframe = () => {
 <body>
 
 <div id="wrapper"><div id="magazine"></div></div>
+<audio id="page-audio" preload="auto">
+  <source src="/pageturn.mp3" type="audio/mpeg">
+</audio>
+
+<div id="mute-btn">🔊</div>
+<div id="fullscreen-btn">⛶</div>
+
 
 <script src="https://code.jquery.com/jquery-1.7.1.min.js"></script>
 <script src="/lib/turn.min.js"></script>
@@ -167,6 +210,32 @@ const PDFFlipbookIframe = () => {
 
 <script>
 (function(){
+
+const fsBtn = document.getElementById("fullscreen-btn");
+
+fsBtn.onclick = () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+};
+
+document.addEventListener("fullscreenchange", () => {
+  fsBtn.textContent = document.fullscreenElement ? "✕" : "⛶";
+});
+
+
+let isMuted = false;
+let audio = document.getElementById("page-audio");
+audio.volume = 0.8;
+
+const muteBtn = document.getElementById("mute-btn");
+muteBtn.onclick = () => {
+  isMuted = !isMuted;
+  muteBtn.textContent = isMuted ? "🔇" : "🔊";
+};
+
 
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js";
@@ -229,10 +298,14 @@ const PDFFlipbookIframe = () => {
   }
 
   async function loadPDF(){
-    const url = "/sample.pdf";
+    const url = PDF_URL;
 
+     
     try {
-      pdfDoc = await pdfjsLib.getDocument(url).promise;
+      pdfDoc = await pdfjsLib.getDocument({
+        url,
+        withCredentials: false
+      }).promise;
       totalPages = pdfDoc.numPages;
 
       const first = await pdfDoc.getPage(1);
@@ -268,6 +341,15 @@ const PDFFlipbookIframe = () => {
         mag.appendChild(div);
       }
 
+      // ✅ FIX: add blank page if total pages is odd (required for double display)
+if (totalPages % 2 !== 0) {
+  const blank = document.createElement("div");
+  blank.className = "page";
+  blank.style.background = "white";
+  mag.appendChild(blank);
+}
+
+
       /* ------------------------------
          TURN.JS INIT
       ------------------------------ */
@@ -279,10 +361,17 @@ const PDFFlipbookIframe = () => {
         autoCenter: true,
         acceleration: true,
         gradients: true,
-        elevation: size.isMobile ? 150 : 50,
+        elevation: size.isMobile ? 75 : 50,
         duration: size.isMobile ? 900 : 800, // slower flip on mobile
         page: 1
       });
+
+      $("#magazine").bind("turning", function () {
+  if (!isMuted && audio) {
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }
+});
 
       $("#magazine").css("opacity", 1);
       // Notify parent React component
@@ -354,6 +443,24 @@ const PDFFlipbookIframe = () => {
   checkDeps();
 
 })();
+document.body.tabIndex = 0;
+document.body.focus();
+
+window.addEventListener("keydown", function (e) {
+  if (!$("#magazine").data("turn")) return;
+
+  if (e.key === "ArrowLeft") {
+    $("#magazine").turn("previous");
+  }
+
+  if (e.key === "ArrowRight") {
+    $("#magazine").turn("next");
+  }
+});
+
+</script>
+<script>
+  const PDF_URL = ${JSON.stringify(pdfUrl)};
 </script>
 
 </body>
@@ -397,7 +504,7 @@ const PDFFlipbookIframe = () => {
         width: "100%",
         height: "100vh",
         overflow: "hidden",
-        background: "#333",
+        background: "#9b7bb8",
         position: "relative"
       }}
     >

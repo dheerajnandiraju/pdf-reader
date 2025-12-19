@@ -4,7 +4,7 @@ import PDFFlipbookIframe from "./components/PDFFlipbookIframe";
 function App() {
   return (
     <div className="App">
-      <PDFFlipbookIframe/>
+      <PDFFlipbookIframe pdfUrl="https://www.pdf995.com/samples/pdf.pdf" />
     </div>
   );
 }
