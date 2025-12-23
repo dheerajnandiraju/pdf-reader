@@ -361,7 +361,7 @@ if (totalPages % 2 !== 0) {
         autoCenter: true,
         acceleration: true,
         gradients: true,
-        elevation: size.isMobile ? 75 : 50,
+        elevation: size.isMobile ? 70 : 50,
         duration: size.isMobile ? 900 : 800, // slower flip on mobile
         page: 1
       });
