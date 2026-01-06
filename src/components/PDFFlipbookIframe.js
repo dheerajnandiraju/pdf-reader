@@ -363,7 +363,8 @@ if (totalPages % 2 !== 0) {
         gradients: true,
         elevation: size.isMobile ? 70 : 50,
         duration: size.isMobile ? 900 : 800, // slower flip on mobile
-        page: 1
+        page: 1,
+        cornerSize: Math.max(size.width, size.height)
       });
 
       $("#magazine").bind("turning", function () {
@@ -380,14 +381,6 @@ if (totalPages % 2 !== 0) {
 
   
 
-      $("#magazine").on("click", function(e){
-        const offset = $(this).offset();
-        const w = $(this).width();
-        const x = e.pageX - offset.left;
-
-        if (x < w * 0.3) $(this).turn("previous");
-        else if (x > w * 0.7) $(this).turn("next");
-      });
 
       // Listen for parent keyboard navigation messages
       window.addEventListener("message", function(ev) {
