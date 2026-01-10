@@ -9,8 +9,16 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
+    // Get PDF URL from prop or environment variable
+    const effectivePdfUrl = pdfUrl || process.env.REACT_APP_PDF_URL;
+
     const TURN_CSS = "https://cdn.jsdelivr.net/npm/turn.js@4.1.0/dist/basic.css";
     const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    
+    // Get base path for assets (works in both dev and production)
+    const publicUrl = process.env.PUBLIC_URL || '';
+    const audioPath = `${publicUrl}/pageturn.mp3`;
+    const turnJsPath = `${publicUrl}/lib/turn.min.js`;
 
     iframeDoc.open();
     iframeDoc.write(`
@@ -179,9 +187,39 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
   transition: background 0.2s ease;
 }
 
-#fullscreen-btn:hover {
-  background: rgba(0,0,0,0.8);
-}
+  #fullscreen-btn:hover {
+    background: rgba(0,0,0,0.8);
+  }
+
+  /* Touch feedback for mobile */
+  #magazine,
+  #wrapper {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+  }
+
+  #magazine {
+    touch-action: none;
+  }
+
+  @media (max-width: 900px) {
+    #magazine .page {
+      touch-action: none;
+    }
+    
+    .corner-btn {
+      -webkit-tap-highlight-color: rgba(255,255,255,0.3);
+      tap-highlight-color: rgba(255,255,255,0.3);
+    }
+    
+    #mute-btn,
+    #fullscreen-btn {
+      -webkit-tap-highlight-color: rgba(255,255,255,0.3);
+      tap-highlight-color: rgba(255,255,255,0.3);
+    }
+  }
 
 </style>
 
@@ -190,7 +228,7 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
 
 <div id="wrapper"><div id="magazine"></div></div>
 <audio id="page-audio" preload="auto">
-  <source src="/pageturn.mp3" type="audio/mpeg">
+  <source src="${audioPath}" type="audio/mpeg">
 </audio>
 
 <div id="mute-btn">🔊</div>
@@ -198,7 +236,7 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
 
 
 <script src="https://code.jquery.com/jquery-1.7.1.min.js"></script>
-<script src="/lib/turn.min.js"></script>
+<script src="${turnJsPath}"></script>
 <script>
   // If local turn.min.js fails, fallback to CDN
   if (!window.jQuery || !jQuery.fn.turn) {
@@ -207,6 +245,10 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
+
+<script>
+  window.PDF_URL = ${JSON.stringify(effectivePdfUrl)};
+</script>
 
 <script>
 (function(){
@@ -298,9 +340,15 @@ muteBtn.onclick = () => {
   }
 
   async function loadPDF(){
-    const url = PDF_URL;
+    const url = window.PDF_URL;
 
-     
+    if (!url || typeof url !== 'string') {
+      console.error('PDF Load Error: PDF_URL is not defined or invalid', url);
+      document.body.innerHTML = '<div style="padding: 50px; text-align: center; color: white; font-size: 16px;"><h2 style="margin-bottom: 20px;">⚠️ PDF Load Error</h2><p>PDF URL is missing or invalid. Please check the pdfUrl prop or REACT_APP_PDF_URL environment variable.</p></div>';
+      window.parent.postMessage({ type: "error", message: "PDF URL is missing or invalid" }, "*");
+      return;
+    }
+
     try {
       pdfDoc = await pdfjsLib.getDocument({
         url,
@@ -414,6 +462,76 @@ if (totalPages % 2 !== 0) {
         if (e.key === "ArrowRight") $("#magazine").turn("next");
       });
 
+      // Touch/Swipe gesture navigation (attach after Turn.js initialization)
+      let touchStartX = null;
+      let touchStartY = null;
+      let touchStartTime = null;
+      const minSwipeDistance = 50; // Minimum distance for swipe
+      const maxVerticalDistance = 100; // Max vertical movement to consider it horizontal swipe
+
+      function handleTouchStart(e) {
+        if (!$("#magazine").data("turn")) return;
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchStartTime = Date.now();
+      }
+
+      function handleTouchMove(e) {
+        // Prevent default scrolling when swiping on the magazine
+        if (touchStartX !== null) {
+          e.preventDefault();
+        }
+      }
+
+      function handleTouchEnd(e) {
+        if (!$("#magazine").data("turn") || touchStartX === null) return;
+
+        const touch = e.changedTouches[0];
+        const touchEndX = touch.clientX;
+        const touchEndY = touch.clientY;
+        const touchEndTime = Date.now();
+
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+        const deltaTime = touchEndTime - touchStartTime;
+
+        // Check if it's a horizontal swipe (not too much vertical movement)
+        if (Math.abs(deltaY) < maxVerticalDistance && Math.abs(deltaX) > minSwipeDistance && deltaTime < 500) {
+          if (deltaX > 0) {
+            // Swipe right - go to previous page
+            $("#magazine").turn("previous");
+          } else {
+            // Swipe left - go to next page
+            $("#magazine").turn("next");
+          }
+        }
+
+        // Reset
+        touchStartX = null;
+        touchStartY = null;
+        touchStartTime = null;
+      }
+
+      // Add touch event listeners after magazine is initialized
+      // Use setTimeout to ensure Turn.js is fully initialized
+      setTimeout(function() {
+        const magazine = document.getElementById("magazine");
+        const wrapper = document.getElementById("wrapper");
+        
+        if (magazine && $("#magazine").data("turn")) {
+          magazine.addEventListener("touchstart", handleTouchStart, { passive: false });
+          magazine.addEventListener("touchmove", handleTouchMove, { passive: false });
+          magazine.addEventListener("touchend", handleTouchEnd, { passive: true });
+        }
+        
+        if (wrapper && $("#magazine").data("turn")) {
+          wrapper.addEventListener("touchstart", handleTouchStart, { passive: false });
+          wrapper.addEventListener("touchmove", handleTouchMove, { passive: false });
+          wrapper.addEventListener("touchend", handleTouchEnd, { passive: true });
+        }
+      }, 100);
+
       window.addEventListener("resize", function(){
         const ns = getBookSize();
         $("#magazine").turn("size", ns.width, ns.height);
@@ -425,12 +543,18 @@ if (totalPages % 2 !== 0) {
 
     } catch (err) {
       console.error("PDF Load Error:", err);
+      const errorMsg = err.message || "Failed to load PDF. Please check the URL and ensure CORS is properly configured.";
+      document.body.innerHTML = '<div style="padding: 50px; text-align: center; color: white; font-size: 16px;"><h2 style="margin-bottom: 20px;">❌ PDF Load Error</h2><p style="margin-bottom: 10px;">' + errorMsg + '</p><p style="font-size: 14px; opacity: 0.8;">If using a local file, ensure it is in the public folder or use a valid URL.</p></div>';
+      window.parent.postMessage({ type: "error", message: errorMsg }, "*");
     }
   }
 
   function checkDeps(){
-    if (window.$ && $.fn.turn && window.pdfjsLib) loadPDF();
-    else setTimeout(checkDeps, 50);
+    if (window.$ && $.fn.turn && window.pdfjsLib && window.PDF_URL) {
+      loadPDF();
+    } else {
+      setTimeout(checkDeps, 50);
+    }
   }
 
   checkDeps();
@@ -451,9 +575,6 @@ window.addEventListener("keydown", function (e) {
   }
 });
 
-</script>
-<script>
-  const PDF_URL = ${JSON.stringify(pdfUrl)};
 </script>
 
 </body>
@@ -476,7 +597,7 @@ window.addEventListener("keydown", function (e) {
     return () => {
       window.removeEventListener("message", handleMessage);
     };
-  }, []);
+  }, [pdfUrl]); // Recreate iframe when pdfUrl changes
 
   // Parent-level keyboard navigation: forward to iframe
   useEffect(() => {

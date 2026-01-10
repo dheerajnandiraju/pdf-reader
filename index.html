@@ -100,8 +100,16 @@
   }
 
   async function loadPDF(url) {
+    if (!url || typeof url !== 'string') {
+      console.error('Error loading PDF: URL is missing or invalid');
+      $('#loading').html('Error loading PDF: URL is missing or invalid.');
+      return;
+    }
     try {
-      pdfDoc = await pdfjsLib.getDocument(url).promise;
+      pdfDoc = await pdfjsLib.getDocument({
+        url,
+        withCredentials: false
+      }).promise;
       totalPages = pdfDoc.numPages;
 
       // Render all pages (for very large PDFs, consider lazy loading)
