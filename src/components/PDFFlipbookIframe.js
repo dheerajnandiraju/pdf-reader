@@ -17,7 +17,8 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
     
     // Get base path for assets (works in both dev and production)
     const publicUrl = process.env.PUBLIC_URL || '';
-    const audioPath = `${publicUrl}/pageturn.mp3`;
+    const liftAudioPath = `${publicUrl}/lift.mp3`;
+    const fastAudioPath = `${publicUrl}/fast.mp3`;
     const turnJsPath = `${publicUrl}/lib/turn.min.js`;
 
     iframeDoc.open();
@@ -57,6 +58,8 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
   #magazine .page {
     background: white ;
     box-shadow: 0 0 20px rgba(0,0,0,0.3);
+    border-radius: 8px;
+    overflow: hidden;
   }
 
   #magazine .page canvas {
@@ -227,8 +230,11 @@ const PDFFlipbookIframe = ({ pdfUrl }) => {
 <body>
 
 <div id="wrapper"><div id="magazine"></div></div>
-<audio id="page-audio" preload="auto">
-  <source src="${audioPath}" type="audio/mpeg">
+<audio id="lift-audio" preload="auto">
+  <source src="${liftAudioPath}" type="audio/mpeg">
+</audio>
+<audio id="fast-audio" preload="auto">
+  <source src="${fastAudioPath}" type="audio/mpeg">
 </audio>
 
 <div id="mute-btn">🔊</div>
@@ -269,8 +275,14 @@ document.addEventListener("fullscreenchange", () => {
 
 
 let isMuted = false;
-let audio = document.getElementById("page-audio");
-audio.volume = 0.8;
+let liftAudio = document.getElementById("lift-audio");
+let fastAudio = document.getElementById("fast-audio");
+if (liftAudio) liftAudio.volume = 0.8;
+if (fastAudio) fastAudio.volume = 0.8;
+
+let isDragging = false;
+let isButtonNavigation = false;
+let liftFadeInterval = null;
 
 const muteBtn = document.getElementById("mute-btn");
 muteBtn.onclick = () => {
@@ -412,15 +424,93 @@ if (totalPages % 2 !== 0) {
         elevation: size.isMobile ? 70 : 50,
         duration: size.isMobile ? 900 : 800, // slower flip on mobile
         page: 1,
-        cornerSize: Math.max(size.width, size.height)
+        cornerSize: Math.max(size.width, size.height) * 100
       });
 
+      // Track drag start - play lift audio at full volume and fade to 0
+      $("#magazine").bind("start", function (event, page, view) {
+        isDragging = true;
+        if (!isMuted && liftAudio) {
+          // Clear any existing fade interval
+          if (liftFadeInterval) {
+            clearInterval(liftFadeInterval);
+            liftFadeInterval = null;
+          }
+          
+          // Get the actual duration from turn.js or use default
+          const turnData = $("#magazine").data("turn");
+          const fadeDuration = turnData && turnData.opts ? turnData.opts.duration : 200;
+          
+          // Start at volume 1.0 (100%)
+          liftAudio.volume = 1.0;
+          liftAudio.currentTime = 0;
+          liftAudio.play().catch(() => {});
+          
+          // Fade out from 1.0 to 0.0 over the drag duration
+          const startTime = Date.now();
+          const updateInterval = 16; // Update every ~16ms for smooth fade (60fps)
+          
+          liftFadeInterval = setInterval(() => {
+            if (!isDragging || isMuted || !liftAudio) {
+              if (liftFadeInterval) {
+                clearInterval(liftFadeInterval);
+                liftFadeInterval = null;
+              }
+              return;
+            }
+            
+            // Calculate volume based on elapsed time
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / fadeDuration, 1.0);
+            const newVolume = Math.max(0, 1.0 - progress);
+            
+            liftAudio.volume = newVolume;
+            
+            // Stop interval when volume reaches 0
+            if (newVolume <= 0) {
+              if (liftFadeInterval) {
+                clearInterval(liftFadeInterval);
+                liftFadeInterval = null;
+              }
+            }
+          }, updateInterval);
+        }
+      });
+
+      // Track turning - don't play any audio during drag (lift already played on start)
       $("#magazine").bind("turning", function () {
-  if (!isMuted && audio) {
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
+        // No audio during drag - lift audio already played on start event
+        // Fast audio is played directly in button/keyboard handlers
+      });
+
+      // Track end - reset dragging flag and stop fade
+      $("#magazine").bind("end", function () {
+        isDragging = false;
+        isButtonNavigation = false;
+        // Stop any ongoing fade
+        if (liftFadeInterval) {
+          clearInterval(liftFadeInterval);
+          liftFadeInterval = null;
+        }
+        // Reset volume for next drag
+        if (liftAudio) {
+          liftAudio.volume = 1.0;
+        }
+      });
+      $("#magazine").bind("turned", function (event, page) {
+  const total = $("#magazine").turn("pages");
+
+  if (window._leftBtn) {
+    window._leftBtn.style.opacity = page === 1 ? "0.3" : "1";
+    window._leftBtn.style.pointerEvents = page === 1 ? "none" : "auto";
+  }
+
+  if (window._rightBtn) {
+    window._rightBtn.style.opacity = page === total ? "0.3" : "1";
+    window._rightBtn.style.pointerEvents = page === total ? "none" : "auto";
   }
 });
+
 
       $("#magazine").css("opacity", 1);
       // Notify parent React component
@@ -433,6 +523,11 @@ if (totalPages % 2 !== 0) {
       // Listen for parent keyboard navigation messages
       window.addEventListener("message", function(ev) {
         if (!ev.data || ev.data.type !== "turn") return;
+        isButtonNavigation = true;
+        if (!isMuted && fastAudio) {
+          fastAudio.currentTime = 0;
+          fastAudio.play().catch(() => {});
+        }
         if (ev.data.dir === "prev") $("#magazine").turn("previous");
         if (ev.data.dir === "next") $("#magazine").turn("next");
       });
@@ -444,22 +539,53 @@ if (totalPages % 2 !== 0) {
         leftBtn.id = "corner-left";
         leftBtn.className = "corner-btn left";
         leftBtn.innerHTML = "↩";
-        leftBtn.onclick = () => $("#magazine").turn("previous");
+        leftBtn.onclick = () => {
+          isButtonNavigation = true;
+          if (!isMuted && fastAudio) {
+            fastAudio.currentTime = 0;
+            fastAudio.play().catch(() => {});
+          }
+          $("#magazine").turn("previous");
+        };
 
         const rightBtn = document.createElement("div");
         rightBtn.id = "corner-right";
         rightBtn.className = "corner-btn right";
         rightBtn.innerHTML = "↪";
-        rightBtn.onclick = () => $("#magazine").turn("next");
+        rightBtn.onclick = () => {
+          isButtonNavigation = true;
+          if (!isMuted && fastAudio) {
+            fastAudio.currentTime = 0;
+            fastAudio.play().catch(() => {});
+          }
+          $("#magazine").turn("next");
+        };
 
         wrapper.appendChild(leftBtn);
         wrapper.appendChild(rightBtn);
+        window._leftBtn = leftBtn;
+window._rightBtn = rightBtn;
+
       }
 
       window.addEventListener("keydown", function(e){
         if (!$("#magazine").data("turn")) return;
-        if (e.key === "ArrowLeft") $("#magazine").turn("previous");
-        if (e.key === "ArrowRight") $("#magazine").turn("next");
+        if (e.key === "ArrowLeft") {
+          isButtonNavigation = true;
+          if (!isMuted && fastAudio) {
+            fastAudio.currentTime = 0;
+            fastAudio.play().catch(() => {});
+          }
+          $("#magazine").turn("previous");
+        }
+        if (e.key === "ArrowRight") {
+          isButtonNavigation = true;
+          if (!isMuted && fastAudio) {
+            fastAudio.currentTime = 0;
+            fastAudio.play().catch(() => {});
+          }
+          $("#magazine").turn("next");
+        }
       });
 
       // Touch/Swipe gesture navigation (attach after Turn.js initialization)
@@ -562,18 +688,6 @@ if (totalPages % 2 !== 0) {
 })();
 document.body.tabIndex = 0;
 document.body.focus();
-
-window.addEventListener("keydown", function (e) {
-  if (!$("#magazine").data("turn")) return;
-
-  if (e.key === "ArrowLeft") {
-    $("#magazine").turn("previous");
-  }
-
-  if (e.key === "ArrowRight") {
-    $("#magazine").turn("next");
-  }
-});
 
 </script>
 
